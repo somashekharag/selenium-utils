@@ -1,0 +1,36 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.JavascriptExecutor;
+
+/**
+ * PageLoadUtil contains helpers to wait for DOM stability or scroll-based load completion.
+ * Use this when content is loaded lazily and you need DOM height stability.
+ */
+public final class PageLoadUtil {
+
+    private PageLoadUtil() {}
+
+    /**
+     * Wait until the page's body height stops changing (simple heuristic for lazy loads).
+     * Avoid relying solely on this; combine with waitForPageLoadComplete() where possible.
+     */
+    public static void waitForDomStable() {
+        try {
+            JavascriptExecutor js = (JavascriptExecutor) ITAFDriverFactory.getDriver();
+            Long previousHeight = -1L;
+            Long currentHeight = (Long) js.executeScript("return document.body.scrollHeight");
+            // Loop with a small sleep until heights are stable.
+            int safety = 0;
+            while (!currentHeight.equals(previousHeight) && safety++ < 20) {
+                Thread.sleep(250); // small wait for DOM changes
+                previousHeight = currentHeight;
+                currentHeight = (Long) js.executeScript("return document.body.scrollHeight");
+            }
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            // Ignore JS errors — caller must decide fallback approach.
+        }
+    }
+}
