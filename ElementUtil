@@ -1,0 +1,50 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.*;
+
+/**
+ * Generic element helpers: getText, attributes, scroll into view, existence checks.
+ * Use getText/getAttribute after waitForVisible to avoid NPE/stale issues.
+ */
+public final class ElementUtil {
+
+    private ElementUtil() {}
+
+    /**
+     * Returns the visible text of the element.
+     * Uses waitForVisible internally.
+     */
+    public static String getText(By locator) {
+        return WaitUtil.waitForVisible(locator).getText();
+    }
+
+    /**
+     * Returns the value of the requested attribute on the element.
+     * Useful when text is not visible or when reading 'value' attribute for inputs.
+     */
+    public static String getAttribute(By locator, String attribute) {
+        return WaitUtil.waitForVisible(locator).getAttribute(attribute);
+    }
+
+    /**
+     * Checks whether element is displayed. Returns false on exceptions.
+     * Good for optional UI elements that may or may not be present.
+     */
+    public static boolean isDisplayed(By locator) {
+        try {
+            return WaitUtil.waitForVisible(locator).isDisplayed();
+        } catch (Exception e) {
+            return false; // element not present/visible
+        }
+    }
+
+    /**
+     * Scrolls the element into view using JS.
+     * Use if click fails due to element being out of viewport.
+     */
+    public static void scrollIntoView(By locator) {
+        WebElement element = WaitUtil.waitForVisible(locator);
+        ((JavascriptExecutor) ITAFDriverFactory.getDriver()).executeScript("arguments[0].scrollIntoView(true);", element);
+    }
+}
