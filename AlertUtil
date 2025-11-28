@@ -1,0 +1,50 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.Alert;
+import org.openqa.selenium.NoAlertPresentException;
+
+/**
+ * Alert helpers for browser-native alerts.
+ * Use getAlertText / accept / dismiss when alerts are expected.
+ */
+public final class AlertUtil {
+
+    private AlertUtil() {}
+
+    private static Alert getAlert() {
+        try {
+            return ITAFDriverFactory.getDriver().switchTo().alert();
+        } catch (NoAlertPresentException e) {
+            throw new RuntimeException("No alert is present!");
+        }
+    }
+
+    /**
+     * Return alert text.
+     */
+    public static String getAlertText() {
+        return getAlert().getText();
+    }
+
+    /**
+     * Accept the alert (click OK).
+     */
+    public static void accept() {
+        getAlert().accept();
+    }
+
+    /**
+     * Dismiss the alert (click Cancel).
+     */
+    public static void dismiss() {
+        getAlert().dismiss();
+    }
+
+    /**
+     * Send keys to prompt alert.
+     */
+    public static void sendKeys(String text) {
+        getAlert().sendKeys(text);
+    }
+}
