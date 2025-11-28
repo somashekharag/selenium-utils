@@ -1,0 +1,33 @@
+package com.itaf.ui.utils;
+
+import org.junit.jupiter.api.Assertions;
+
+/**
+ * Lightweight assertion utility using JUnit Jupiter assertions.
+ * Use these for in-test validations. Consider wrapping for soft-assert support.
+ */
+public final class AssertionUtil {
+
+    private AssertionUtil() {}
+
+    /**
+     * Assert equality with custom message.
+     */
+    public static void assertEquals(String expected, String actual, String message) {
+        Assertions.assertEquals(expected, actual, message);
+    }
+
+    /**
+     * Assert a condition is true.
+     */
+    public static void assertTrue(boolean condition, String message) {
+        Assertions.assertTrue(condition, message);
+    }
+
+    /**
+     * Assert a condition is false.
+     */
+    public static void assertFalse(boolean condition, String message) {
+        Assertions.assertFalse(condition, message);
+    }
+}
