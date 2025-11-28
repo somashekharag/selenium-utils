@@ -1,0 +1,37 @@
+package com.itaf.ui.utils;
+
+import org.openqa.selenium.*;
+import org.openqa.selenium.support.ui.Select;
+
+/**
+ * Helpers for interacting with <select> dropdown elements.
+ * Works only with native <select> elements (not custom styled dropdowns).
+ */
+public final class DropdownUtil {
+
+    private DropdownUtil() {}
+
+    /**
+     * Select by visible text.
+     * Use when you have user-friendly visible text to choose.
+     */
+    public static void selectByText(By locator, String text) {
+        new Select(WaitUtil.waitForVisible(locator)).selectByVisibleText(text);
+    }
+
+    /**
+     * Select by option value attribute.
+     * Use when option's value attribute is known.
+     */
+    public static void selectByValue(By locator, String value) {
+        new Select(WaitUtil.waitForVisible(locator)).selectByValue(value);
+    }
+
+    /**
+     * Select by option index (0-based).
+     * Use when position is known and stable.
+     */
+    public static void selectByIndex(By locator, int index) {
+        new Select(WaitUtil.waitForVisible(locator)).selectByIndex(index);
+    }
+}
