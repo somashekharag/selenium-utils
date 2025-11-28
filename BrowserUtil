@@ -1,0 +1,50 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.WebDriver;
+
+/**
+ * Browser-level utilities (navigation, refresh, maximize).
+ * Use these for test-level browser control rather than page-level navigation.
+ */
+public final class BrowserUtil {
+
+    private BrowserUtil() {}
+
+    /**
+     * Open the given URL and wait for page load complete.
+     */
+    public static void openUrl(String url) {
+        ITAFDriverFactory.getDriver().get(url);
+        WaitUtil.waitForPageLoadComplete();
+    }
+
+    /**
+     * Refresh the current page and wait for load complete.
+     */
+    public static void refresh() {
+        ITAFDriverFactory.getDriver().navigate().refresh();
+        WaitUtil.waitForPageLoadComplete();
+    }
+
+    /**
+     * Navigate back in browser history.
+     */
+    public static void back() {
+        ITAFDriverFactory.getDriver().navigate().back();
+    }
+
+    /**
+     * Navigate forward in browser history.
+     */
+    public static void forward() {
+        ITAFDriverFactory.getDriver().navigate().forward();
+    }
+
+    /**
+     * Maximize browser window.
+     */
+    public static void maximize() {
+        ITAFDriverFactory.getDriver().manage().window().maximize();
+    }
+}
