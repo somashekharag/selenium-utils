@@ -1,0 +1,39 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.*;
+import org.openqa.selenium.interactions.Actions;
+
+/**
+ * Mouse and advanced Actions utils: hover, drag-and-drop, double-click.
+ * Use Actions for complex interactions that simple click/sendKeys can't handle.
+ */
+public final class MouseUtil {
+
+    private MouseUtil() {}
+
+    /**
+     * Hover over an element (move mouse to element).
+     * Useful to reveal menus/tooltips.
+     */
+    public static void hover(By locator) {
+        WebElement element = WaitUtil.waitForVisible(locator);
+        new Actions(ITAFDriverFactory.getDriver()).moveToElement(element).perform();
+    }
+
+    /**
+     * Drag from one element and drop on another.
+     */
+    public static void dragAndDrop(By from, By to) {
+        Actions action = new Actions(ITAFDriverFactory.getDriver());
+        action.dragAndDrop(WaitUtil.waitForVisible(from), WaitUtil.waitForVisible(to)).perform();
+    }
+
+    /**
+     * Double-click the target element.
+     */
+    public static void doubleClick(By locator) {
+        WebElement element = WaitUtil.waitForVisible(locator);
+        new Actions(ITAFDriverFactory.getDriver()).doubleClick(element).perform();
+    }
+}
