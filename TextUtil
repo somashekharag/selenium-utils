@@ -1,0 +1,44 @@
+package com.itaf.ui.utils;
+
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebElement;
+
+/**
+ * Text utilities for typing and clearing text fields.
+ * Use type() for standard entry and typeSlowly() for inputs that require paced typing.
+ */
+public final class TextUtil {
+
+    private TextUtil() {}
+
+    /**
+     * Clears the field and types the provided text.
+     * Prefer this method for reliable input (ensures previous value removed).
+     */
+    public static void type(By locator, String text) {
+        WebElement element = WaitUtil.waitForVisible(locator);
+        element.clear();              // inline comment: remove any existing text first
+        element.sendKeys(text);       // inline comment: send the full text
+    }
+
+    /**
+     * Appends text to the current value without clearing.
+     * Use when you intentionally want to add to existing text.
+     */
+    public static void append(By locator, String text) {
+        WaitUtil.waitForVisible(locator).sendKeys(text);
+    }
+
+    /**
+     * Types text character-by-character with a delay between keystrokes.
+     * Use when input reacts to typing events (e.g., auto-suggest).
+     */
+    public static void typeSlowly(By locator, String text, long delayMs) {
+        WebElement element = WaitUtil.waitForVisible(locator);
+        element.clear();
+        for (char c : text.toCharArray()) {
+            element.sendKeys(String.valueOf(c));
+            try { Thread.sleep(delayMs); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }
+    }
+}
