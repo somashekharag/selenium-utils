@@ -1,0 +1,75 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.*;
+import org.openqa.selenium.support.ui.*;
+
+import java.time.Duration;
+
+/**
+ * Wait utility methods for explicit waits and common page-load waits.
+ * Use this for reliable synchronization instead of Thread.sleep().
+ */
+public final class WaitUtil {
+
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration POLLING = Duration.ofMillis(500);
+
+    private WaitUtil() {}
+
+    /**
+     * Create a WebDriverWait bound to the current thread's driver.
+     */
+    private static WebDriverWait getWait(Duration timeout) {
+        // Create a new WebDriverWait for each call to keep it thread-safe.
+        return new WebDriverWait(ITAFDriverFactory.getDriver(), timeout)
+                .pollingEvery(POLLING)
+                .ignoring(NoSuchElementException.class, StaleElementReferenceException.class);
+    }
+
+    /**
+     * Wait until element located by locator is visible.
+     * Use this before reading text or interacting with element that must be visible.
+     */
+    public static WebElement waitForVisible(By locator) {
+        return getWait(DEFAULT_TIMEOUT).until(ExpectedConditions.visibilityOfElementLocated(locator));
+    }
+
+    /**
+     * Wait until element located by locator is clickable.
+     * Use this prior to clicking a button or link.
+     */
+    public static WebElement waitForClickable(By locator) {
+        return getWait(DEFAULT_TIMEOUT).until(ExpectedConditions.elementToBeClickable(locator));
+    }
+
+    /**
+     * Wait until element located by locator is not visible (staleness/invisibility).
+     * Useful for waiting for spinners to disappear.
+     */
+    public static boolean waitForInvisibility(By locator) {
+        return getWait(DEFAULT_TIMEOUT).until(ExpectedConditions.invisibilityOfElementLocated(locator));
+    }
+
+    /**
+     * Wait until the document.readyState equals "complete".
+     * Use this after navigation/openUrl to ensure page has loaded.
+     */
+    public static void waitForPageLoadComplete() {
+        getWait(DEFAULT_TIMEOUT).until(driver ->
+                ((JavascriptExecutor) driver).executeScript("return document.readyState").equals("complete"));
+    }
+
+    /**
+     * Wait for jQuery to be idle (if application uses jQuery).
+     * Use carefully — if app doesn't include jQuery, this will throw; call only when appropriate.
+     */
+    public static void waitForAjax() {
+        try {
+            getWait(DEFAULT_TIMEOUT).until(driver ->
+                    (Boolean) ((JavascriptExecutor) driver).executeScript("return window.jQuery != null && jQuery.active === 0"));
+        } catch (JavascriptException | WebDriverException e) {
+            // If jQuery is absent or script fails, swallow to avoid failing test. Caller can decide alternative waits.
+        }
+    }
+}
