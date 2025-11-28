@@ -1,0 +1,29 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebElement;
+
+/**
+ * Frame switching helpers.
+ * Use switchToFrame when you need to interact with elements inside an iframe.
+ */
+public final class FrameUtil {
+
+    private FrameUtil() {}
+
+    /**
+     * Switch to frame identified by a locator (iframe element).
+     */
+    public static void switchToFrame(By locator) {
+        WebElement frame = WaitUtil.waitForVisible(locator);
+        ITAFDriverFactory.getDriver().switchTo().frame(frame);
+    }
+
+    /**
+     * Switch back to the top-level browsing context.
+     */
+    public static void switchToDefault() {
+        ITAFDriverFactory.getDriver().switchTo().defaultContent();
+    }
+}
