@@ -1,0 +1,46 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.Keys;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.By;
+
+/**
+ * Keyboard helpers using Keys.
+ * Use for sending Enter, Escape, Tab and shortcuts.
+ */
+public final class KeyboardUtil {
+
+    private KeyboardUtil() {}
+
+    /**
+     * Press ENTER on the element (after waiting).
+     * Use for forms or input-driven submit.
+     */
+    public static void pressEnter(By locator) {
+        WaitUtil.waitForVisible(locator).sendKeys(Keys.ENTER);
+    }
+
+    /**
+     * Press ESCAPE on the active element (no locator required).
+     * Useful to dismiss modals or overlays.
+     */
+    public static void pressEscape() {
+        ITAFDriverFactory.getDriver().switchTo().activeElement().sendKeys(Keys.ESCAPE);
+    }
+
+    /**
+     * Press TAB on the target element to move focus.
+     */
+    public static void pressTab(By locator) {
+        WaitUtil.waitForVisible(locator).sendKeys(Keys.TAB);
+    }
+
+    /**
+     * Send Ctrl+A (select all) to the element.
+     */
+    public static void shortcutCtrlA(By locator) {
+        WebElement element = WaitUtil.waitForVisible(locator);
+        element.sendKeys(Keys.chord(Keys.CONTROL, "a"));
+    }
+}
