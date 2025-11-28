@@ -1,0 +1,53 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.*;
+
+/**
+ * Click utility: prefer normal Selenium click, fall back to JS click.
+ * Use safeClick when intermittent failures occur.
+ */
+public final class ClickUtil {
+
+    private ClickUtil() {}
+
+    /**
+     * Performs a standard click after waiting for element to be clickable.
+     * Use for most clickable actions.
+     */
+    public static void click(By locator) {
+        try {
+            WaitUtil.waitForClickable(locator).click();
+        } catch (Exception e) {
+            // If normal click fails (overlay, stale), fallback to JS click
+            jsClick(locator);
+        }
+    }
+
+    /**
+     * Performs a JavaScript click (bypasses Selenium click). Use when click is blocked by overlay or weird CSS.
+     */
+    public static void jsClick(By locator) {
+        WebElement element = WaitUtil.waitForVisible(locator);
+        ((JavascriptExecutor) ITAFDriverFactory.getDriver()).executeScript("arguments[0].click();", element);
+    }
+
+    /**
+     * Tries to click with retries. Use in flaky areas (e.g., intermittent overlay).
+     *
+     * @param locator locator to click
+     * @param retries number of tries
+     */
+    public static void safeClick(By locator, int retries) {
+        for (int i = 0; i < retries; i++) {
+            try {
+                click(locator);
+                return;
+            } catch (Exception ignored) {
+                // small pause before retry
+                try { Thread.sleep(250); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            }
+        }
+        throw new RuntimeException("Failed to click element after retries: " + locator);
+    }
+}
