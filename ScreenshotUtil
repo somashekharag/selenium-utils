@@ -1,0 +1,41 @@
+package com.itaf.ui.utils;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.*;
+
+import java.nio.file.*;
+
+/**
+ * Screenshot utilities. Saves images to /screenshots by default.
+ * Use captureScreenshot on failures or attach to reports.
+ */
+public final class ScreenshotUtil {
+
+    private ScreenshotUtil() {}
+
+    /**
+     * Capture screenshot and save to disk with provided name.
+     * Returns the path to the saved file.
+     */
+    public static Path captureScreenshot(String name) {
+        TakesScreenshot ts = (TakesScreenshot) ITAFDriverFactory.getDriver();
+        byte[] data = ts.getScreenshotAs(OutputType.BYTES);
+
+        try {
+            Path path = Paths.get("screenshots/" + name + ".png");
+            Files.createDirectories(path.getParent());
+            Files.write(path, data);
+            return path;
+        } catch (Exception e) {
+            throw new RuntimeException("Unable to save screenshot", e);
+        }
+    }
+
+    /**
+     * Return a Base64-encoded screenshot (helpful for embedding in reports).
+     */
+    public static String captureBase64() {
+        TakesScreenshot ts = (TakesScreenshot) ITAFDriverFactory.getDriver();
+        return ts.getScreenshotAs(OutputType.BASE64);
+    }
+}
