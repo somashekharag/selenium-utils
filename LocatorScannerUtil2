@@ -1,0 +1,342 @@
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Properties;
+
+public final class LocatorScannerConfig {
+
+    private static final Properties props = new Properties();
+
+    static {
+        try (InputStream is = LocatorScannerConfig.class
+                .getClassLoader()
+                .getResourceAsStream("itaf-ui-locator-config.properties")) {
+
+            if (is != null) {
+                props.load(is);
+            } else {
+                throw new RuntimeException("Config file not found: itaf-ui-locator-config.properties");
+            }
+
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to load locator scanner config", e);
+        }
+    }
+
+    public static List<String> getBaseSelectors() {
+        String val = props.getProperty("itaf.locator.scan.selectors", "");
+        return Arrays.stream(val.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
+    }
+
+    public static List<String> getExtraSelectors() {
+        String val = props.getProperty("itaf.locator.scan.extra-selectors", "");
+        return Arrays.stream(val.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
+    }
+
+    public static int getMinVisibleWidth() {
+        return Integer.parseInt(props.getProperty("itaf.locator.visible.min-width", "2"));
+    }
+
+    public static int getMinVisibleHeight() {
+        return Integer.parseInt(props.getProperty("itaf.locator.visible.min-height", "2"));
+    }
+}
+-----------------------------
+import java.util.HashMap;
+import java.util.Map;
+
+public class LocatorCandidate {
+
+    public String elementTag;
+    public String id;
+    public String name;
+    public String css;
+    public String xpath;
+    public String text;
+    public String className;
+
+    /**
+     * Stores ALL arbitrary attributes (data-testid, data-qa, aria-*, role, custom attributes, etc.)
+     */
+    public Map<String, String> attrs = new HashMap<>();
+
+    public int uniquenessScore;
+
+    @Override
+    public String toString() {
+        return "LocatorCandidate{" +
+                "tag='" + elementTag + '\'' +
+                ", id='" + id + '\'' +
+                ", name='" + name + '\'' +
+                ", text='" + text + '\'' +
+                ", css='" + css + '\'' +
+                ", xpath='" + xpath + '\'' +
+                ", attrs=" + attrs +
+                '}';
+    }
+}
+----------------------------
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.WebDriver;
+
+import java.util.*;
+
+public class LocatorScannerUtil {
+
+    public static List<LocatorCandidate> scanPage() {
+
+        WebDriver driver = ITAFDriverFactory.getDriver();
+        JavascriptExecutor js = (JavascriptExecutor) driver;
+
+        // Build dynamic selector list (base + custom selectors)
+        String selectorList = buildSelectorList();
+
+        int minWidth  = LocatorScannerConfig.getMinVisibleWidth();
+        int minHeight = LocatorScannerConfig.getMinVisibleHeight();
+
+        String script = """
+                var results = [];
+                var selectors = "%s".split(",");
+                var query = selectors.join(",");
+
+                var elements = document.querySelectorAll(query);
+
+                function isVisible(el, minW, minH) {
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    return (
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        rect.width >= minW &&
+                        rect.height >= minH
+                    );
+                }
+
+                function getCssPath(el) {
+                    if (!el) return null;
+                    var path = "";
+                    while (el && el.nodeType === Node.ELEMENT_NODE) {
+                        var selector = el.nodeName.toLowerCase();
+                        if (el.id) {
+                            selector += "#" + el.id;
+                            path = selector + (path ? " > " + path : "");
+                            break;
+                        } else {
+                            var sib = el, nth = 1;
+                            while (sib = sib.previousElementSibling)
+                                if (sib.nodeName.toLowerCase() == selector) nth++;
+                            selector += ":nth-of-type(" + nth + ")";
+                        }
+                        path = selector + (path ? " > " + path : "");
+                        el = el.parentNode;
+                    }
+                    return path;
+                }
+
+                function getXPath(el) {
+                    if (el.id) return "//*[@id='" + el.id + "']";
+                    var index = 1;
+                    var siblings = el.parentNode ? el.parentNode.children : [];
+                    for (var i = 0; i < siblings.length; i++) {
+                        var sib = siblings[i];
+                        if (sib.tagName === el.tagName) {
+                            if (sib === el) {
+                                return getXPath(el.parentNode) + "/" + el.tagName.toLowerCase() + "[" + index + "]";
+                            }
+                            index++;
+                        }
+                    }
+                    return "";
+                }
+
+                elements.forEach(function(el) {
+                    if (!isVisible(el, %d, %d)) return;
+
+                    // Capture all attributes
+                    var attributes = {};
+                    for (let attr of el.attributes) {
+                        attributes[attr.name] = attr.value;
+                    }
+
+                    results.push({
+                        tag: el.tagName.toLowerCase(),
+                        id: el.id || null,
+                        name: el.getAttribute('name') || null,
+                        className: el.className || null,
+                        text: el.innerText && el.innerText.trim().length <= 40 
+                                ? el.innerText.trim() 
+                                : null,
+                        cssPath: getCssPath(el),
+                        xpath: getXPath(el),
+                        attrs: attributes
+                    });
+                });
+
+                return results;
+                """.formatted(selectorList, minWidth, minHeight);
+
+        List<Map<String, Object>> raw = (List<Map<String, Object>>) js.executeScript(script);
+
+        List<LocatorCandidate> candidates = new ArrayList<>();
+
+        for (Map<String, Object> map : raw) {
+            LocatorCandidate lc = new LocatorCandidate();
+
+            lc.elementTag = safe(map.get("tag"));
+            lc.id         = safe(map.get("id"));
+            lc.name       = safe(map.get("name"));
+            lc.className  = safe(map.get("className"));
+            lc.text       = safe(map.get("text"));
+            lc.css        = safe(map.get("cssPath"));
+            lc.xpath      = safe(map.get("xpath"));
+
+            // Extract all attributes dynamically
+            Object attrsObj = map.get("attrs");
+            if (attrsObj instanceof Map<?, ?> attrMap) {
+                for (var entry : attrMap.entrySet()) {
+                    lc.attrs.put(entry.getKey().toString(),
+                                 entry.getValue() == null ? null : entry.getValue().toString());
+                }
+            }
+
+            lc.uniquenessScore = calculateUniqueness(lc);
+            candidates.add(lc);
+        }
+
+        return candidates;
+    }
+
+    private static String buildSelectorList() {
+        List<String> base  = LocatorScannerConfig.getBaseSelectors();
+        List<String> extra = LocatorScannerConfig.getExtraSelectors();
+
+        List<String> all = new ArrayList<>();
+        all.addAll(base);
+        all.addAll(extra);
+
+        return String.join(",", all);
+    }
+
+    private static String safe(Object obj) {
+        if (obj == null) return null;
+        String s = obj.toString().trim();
+        return s.isEmpty() || s.equals("null") ? null : s;
+    }
+
+    private static int calculateUniqueness(LocatorCandidate lc) {
+        int score = 0;
+        if (lc.id != null) score += 100;
+        if (lc.attrs.containsKey("data-testid")) score += 90;
+        if (lc.ariaLabel != null) score += 80;
+        if (lc.name != null) score += 60;
+        if (lc.text != null) score += 40;
+        if (lc.css != null) score += 20;
+        return score + 5;
+    }
+}
+-------------------------------
+import java.util.List;
+
+public final class BestLocatorResolver {
+
+    private BestLocatorResolver() {}
+
+    public static String resolveBestLocator(LocatorCandidate lc) {
+
+        List<String> priorities = LocatorScannerConfig.getLocatorPriorityList();
+
+        for (String token : priorities) {
+
+            switch (token) {
+
+                case "id":
+                    if (notEmpty(lc.id))
+                        return "By.id(\"" + esc(lc.id) + "\")";
+                    break;
+
+                case "name":
+                    if (notEmpty(lc.name))
+                        return "By.name(\"" + esc(lc.name) + "\")";
+                    break;
+
+                case "css":
+                    if (notEmpty(lc.css))
+                        return "By.cssSelector(\"" + esc(lc.css) + "\")";
+                    break;
+
+                case "text":
+                    if (notEmpty(lc.text))
+                        return "By.xpath(\"//" + lc.elementTag +
+                                "[normalize-space(text())='" + escX(lc.text) + "']\")";
+                    break;
+
+                case "xpath":
+                    if (notEmpty(lc.xpath))
+                        return "By.xpath(\"" + esc(lc.xpath) + "\")";
+                    break;
+
+                default:
+                    // ⭐ Dynamic attribute locator rule
+                    String val = lc.attrs.get(token);
+                    if (notEmpty(val))
+                        return "By.cssSelector(\"[" + token + "='" + esc(val) + "']\")";
+            }
+        }
+
+        // ⭐ Strong fallback logic
+        if (notEmpty(lc.id)) return "By.id(\"" + esc(lc.id) + "\")";
+        if (notEmpty(lc.css)) return "By.cssSelector(\"" + esc(lc.css) + "\")";
+        if (notEmpty(lc.xpath)) return "By.xpath(\"" + esc(lc.xpath) + "\")";
+
+        return "By.xpath(\"//" + lc.elementTag + "\")";
+    }
+
+    private static boolean notEmpty(String s) {
+        return s != null && !s.isBlank();
+    }
+
+    private static String esc(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private static String escX(String s) {
+        return s.replace("\"", "'");
+    }
+}
+----------------------
+itaf-ui-locator-config.properties
+
+itaf.locator.priority = 
+  data-testid, 
+  data-qa, 
+  id, 
+  aria-label, 
+  name, 
+  css, 
+  text, 
+  xpath
+
+For Material UI:
+itaf.locator.scan.extra-selectors = [data-testid], [aria-label], [role], button[mat-button]
+itaf.locator.priority = data-testid, aria-label, role, id, css, xpath
+
+For Cypress/Playwright style apps:
+itaf.locator.scan.extra-selectors = [data-cy], [data-test], [data-test-id]
+itaf.locator.priority = data-cy, data-test, data-test-id, id, name, css, xpath
+
+For Angular:
+itaf.locator.scan.extra-selectors = [ng-reflect-model], [ng-reflect-name], [formcontrolname]
+itaf.locator.priority = formcontrolname, ng-reflect-name, id, css, text
+
+🔹 For custom internal app:
+itaf.locator.scan.extra-selectors = [automation-id], [data-app-id]
+itaf.locator.priority = automation-id, data-app-id, id, css
+
