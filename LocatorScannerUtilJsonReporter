@@ -1,0 +1,110 @@
+public class LocatorCandidateDTO {
+
+    public String elementTag;
+    public String id;
+    public String name;
+    public String css;
+    public String xpath;
+    public String text;
+    public String className;
+    public Map<String, String> attrs;
+    public int uniquenessScore;
+
+    public String bestLocator;
+
+    // ⭐ NEW FIELD
+    public String confidenceLevel;
+}
+
+-----------------------
+private static String computeConfidenceLevel(int score) {
+
+    if (score >= 200) return "HIGH";
+    if (score >= 150) return "MEDIUM";
+    if (score >= 100) return "LOW";
+    return "VERY_LOW";
+}
+----------------------------
+package com.itaf.ui.locator.export;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.itaf.ui.locator.BestLocatorResolver;
+import com.itaf.ui.locator.LocatorCandidate;
+
+import java.io.IOException;
+import java.nio.file.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+public final class ScannerJsonExporter {
+
+    private static final ObjectMapper mapper = new ObjectMapper()
+            .enable(SerializationFeature.INDENT_OUTPUT);
+
+    private ScannerJsonExporter() {}
+
+    /**
+     * Exports scanner output to JSON with the BEST locator included.
+     */
+    public static Path exportToJson(List<LocatorCandidate> candidates, String pageName) {
+        try {
+
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            Path outputDir = Paths.get("reports", "scanner-json-" + sanitize(pageName) + "-" + timestamp);
+
+            Files.createDirectories(outputDir);
+
+            Path jsonPath = outputDir.resolve("locator-scan.json");
+
+            // Convert to DTO objects
+            List<LocatorCandidateDTO> dtoList = new ArrayList<>();
+
+for (LocatorCandidate lc : candidates) {
+
+    LocatorCandidateDTO dto = new LocatorCandidateDTO();
+
+    dto.elementTag      = lc.elementTag;
+    dto.id              = lc.id;
+    dto.name            = lc.name;
+    dto.css             = lc.css;
+    dto.xpath           = lc.xpath;
+    dto.text            = lc.text;
+    dto.className       = lc.className;
+    dto.attrs           = lc.attrs;
+    dto.uniquenessScore = lc.uniquenessScore;
+
+    dto.bestLocator = BestLocatorResolver.resolveBestLocator(lc);
+
+    // ⭐ Assign confidence based on uniquenessScore
+    dto.confidenceLevel = computeConfidenceLevel(lc.uniquenessScore);
+
+    dtoList.add(dto);
+}
+
+            // Write JSON
+            mapper.writeValue(jsonPath.toFile(), dtoList);
+
+            System.out.println("Scanner JSON with best locator exported at:");
+            System.out.println(jsonPath.toAbsolutePath());
+
+            return jsonPath;
+
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to export scanner output to JSON", e);
+        }
+    }
+
+    private static String sanitize(String s) {
+        return s == null ? "page" : s.replaceAll("[^a-zA-Z0-9_\\-]", "_");
+    }
+
+private static String computeConfidenceLevel(int score) {
+    if (score >= 200) return "HIGH";
+    if (score >= 150) return "MEDIUM";
+    if (score >= 100) return "LOW";
+    return "VERY_LOW";
+}
+}
+
