@@ -447,4 +447,266 @@ itaf.locator.priority =
 itaf.locator.visible.min-width = 2
 itaf.locator.visible.min-height = 2
 
+---------------------------------------------------------------------
+package com.itaf.ui.locator.report;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import com.itaf.ui.locator.LocatorCandidate;
+import com.itaf.ui.locator.BestLocatorResolver;
+import com.itaf.ui.locator.LocatorScannerUtil;
+import com.itaf.ui.utils.WaitUtil;
+import org.openqa.selenium.*;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.nio.file.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+/**
+ * Generates:
+ *   - Element screenshots (element-level when possible, fallback to full screen)
+ *   - HTML report including:
+ *       * Best locator chosen by BestLocatorResolver
+ *       * All locators (id, css, xpath, name, text, attributes)
+ *       * Screenshot preview for each element
+ */
+public final class ElementScreenshotReportGenerator {
+
+    private ElementScreenshotReportGenerator() {}
+
+    /**
+     * Main method to generate element screenshot + HTML locator report.
+     */
+    public static Path generateReport(List<LocatorCandidate> candidates, String pageName) {
+
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        Path reportDir = Paths.get("reports", sanitize(pageName) + "_" + timestamp);
+        Path imagesDir = reportDir.resolve("images");
+
+        try {
+            Files.createDirectories(imagesDir);
+        } catch (IOException e) {
+            throw new RuntimeException("Could not create report folder: " + reportDir, e);
+        }
+
+        WebDriver driver = ITAFDriverFactory.getDriver();
+        Map<LocatorCandidate, String> screenshotPaths = new LinkedHashMap<>();
+
+        int index = 1;
+        for (LocatorCandidate lc : candidates) {
+
+            String fileName = "element_" + index + ".png";
+            Path outputImage = imagesDir.resolve(fileName);
+
+            boolean screenshotCaptured = false;
+
+            try {
+                WebElement el = findElement(driver, lc);
+
+                if (el != null) {
+                    scrollIntoView(driver, el);
+
+                    try {
+                        byte[] img = el.getScreenshotAs(OutputType.BYTES);
+                        Files.write(outputImage, img);
+                        screenshotCaptured = true;
+                    } catch (Exception ex) {
+                        screenshotCaptured = false;
+                    }
+                }
+
+                if (!screenshotCaptured) {
+                    try {
+                        TakesScreenshot ts = (TakesScreenshot) driver;
+                        byte[] img = ts.getScreenshotAs(OutputType.BYTES);
+                        Files.write(outputImage, img);
+                        screenshotCaptured = true;
+                    } catch (Exception ignored) {}
+                }
+
+                screenshotPaths.put(lc, "images/" + fileName);
+
+            } catch (Exception ex) {
+                screenshotPaths.put(lc, null);
+            }
+
+            index++;
+        }
+
+        Path html = reportDir.resolve("locator-report.html");
+        writeHtmlReport(html, pageName, screenshotPaths);
+
+        System.out.println("Element locator report generated at:\n" + html.toAbsolutePath());
+        return html;
+    }
+
+    // ---------------------------------------------------------------------------
+    // ELEMENT SEARCH HELPERS
+    // ---------------------------------------------------------------------------
+
+    private static WebElement findElement(WebDriver driver, LocatorCandidate lc) {
+
+        List<By> candidateLocators = new ArrayList<>();
+
+        if (lc.id != null) candidateLocators.add(By.id(lc.id));
+        if (lc.name != null) candidateLocators.add(By.name(lc.name));
+        if (lc.css != null) candidateLocators.add(By.cssSelector(lc.css));
+        if (lc.xpath != null) candidateLocators.add(By.xpath(lc.xpath));
+
+        // dynamic attribute locators
+        lc.attrs.forEach((key, val) -> {
+            if (val != null)
+                candidateLocators.add(By.cssSelector("[" + key + "='" + escape(val) + "']"));
+        });
+
+        for (By by : candidateLocators) {
+            try {
+                if (WaitUtil.waitForOptionalElement(by, 1)) {
+                    WebElement el = driver.findElement(by);
+                    if (el.isDisplayed()) return el;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        return null;
+    }
+
+    private static void scrollIntoView(WebDriver driver, WebElement el) {
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                    "arguments[0].scrollIntoView({block:'center', inline:'center'});", el);
+        } catch (Exception ignored) {}
+    }
+
+    // ---------------------------------------------------------------------------
+    // HTML REPORT GENERATION
+    // ---------------------------------------------------------------------------
+
+    private static void writeHtmlReport(Path htmlPath,
+                                        String pageName,
+                                        Map<LocatorCandidate, String> screenshots) {
+
+        try (BufferedWriter bw = Files.newBufferedWriter(htmlPath)) {
+
+            bw.write("""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>Locator Report - %s</title>
+                        <style>
+                            body { font-family: Arial; padding: 12px; }
+                            table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
+                            th, td { border: 1px solid #ccc; padding: 8px; vertical-align: top; }
+                            th { background: #f3f3f3; }
+                            img { max-width: 240px; border: 1px solid #aaa; }
+                            .small { font-size: 12px; color: #555; }
+                            pre { white-space: pre-wrap; word-break: break-word; }
+                        </style>
+                    </head>
+                    <body>
+                    """.formatted(escapeHtml(pageName)));
+
+            bw.write("<h1>Element Locator Report</h1>");
+            bw.write("<h3>Page: " + escapeHtml(pageName) + "</h3>");
+            bw.write("<p>Generated: " + LocalDateTime.now() + "</p>");
+
+            bw.write("""
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Screenshot</th>
+                          <th>Tag</th>
+                          <th>Best Locator</th>
+                          <th>All Attributes</th>
+                          <th>Locators</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                    """);
+
+            int i = 1;
+            for (var entry : screenshots.entrySet()) {
+
+                LocatorCandidate lc = entry.getKey();
+                String imgPath = entry.getValue();
+                String best = BestLocatorResolver.resolveBestLocator(lc);
+
+                bw.write("<tr>");
+
+                bw.write("<td>" + i + "</td>");
+
+                if (imgPath != null)
+                    bw.write("<td><img src=\"" + imgPath + "\"/></td>");
+                else
+                    bw.write("<td>No Image</td>");
+
+                bw.write("<td>" + escapeHtml(lc.elementTag) + "</td>");
+                bw.write("<td><code>" + escapeHtml(best) + "</code></td>");
+
+                // attributes
+                bw.write("<td><pre>" + escapeHtml(attrsToString(lc.attrs)) + "</pre></td>");
+
+                // full locator breakdown
+                bw.write("<td><pre>" + escapeHtml(allLocators(lc)) + "</pre></td>");
+
+                bw.write("</tr>");
+
+                i++;
+            }
+
+            bw.write("""
+                      </tbody>
+                    </table>
+                    </body>
+                    </html>
+                    """);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed writing HTML report", e);
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // FORMATTING HELPERS
+    // ---------------------------------------------------------------------------
+
+    private static String allLocators(LocatorCandidate lc) {
+        StringBuilder sb = new StringBuilder();
+
+        if (lc.id != null) sb.append("id: ").append(lc.id).append("\n");
+        if (lc.name != null) sb.append("name: ").append(lc.name).append("\n");
+        if (lc.text != null) sb.append("text: ").append(lc.text).append("\n");
+        if (lc.css != null) sb.append("css: ").append(lc.css).append("\n");
+        if (lc.xpath != null) sb.append("xpath: ").append(lc.xpath).append("\n");
+
+        lc.attrs.forEach((k, v) -> sb.append(k).append(": ").append(v).append("\n"));
+
+        return sb.toString();
+    }
+
+    private static String attrsToString(Map<String,String> attrs) {
+        StringBuilder sb = new StringBuilder();
+        attrs.forEach((k,v) -> sb.append(k).append(" = ").append(v).append("\n"));
+        return sb.toString();
+    }
+
+    private static String escape(String s) {
+        return s.replace("'", "\\'");
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&","&amp;")
+                .replace("<","&lt;")
+                .replace(">","&gt;")
+                .replace("\"","&quot;");
+    }
+
+    private static String sanitize(String s) {
+        return s.replaceAll("[^a-zA-Z0-9_\\-]", "_");
+    }
+}
 
