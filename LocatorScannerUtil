@@ -193,3 +193,255 @@ for (LocatorCandidate lc : elements) {
     System.out.println("XPath      : " + lc.xpath);
     System.out.println("Score      : " + lc.uniquenessScore);
 }
+
+------------------------------------
+
+package com.itaf.ui.locator.report;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import com.itaf.ui.locator.LocatorCandidate;
+import com.itaf.ui.locator.LocatorScannerUtil;
+import com.itaf.ui.locator.BestLocatorResolver;
+import com.itaf.ui.utils.ElementUtil;
+import com.itaf.ui.utils.WaitUtil;
+import org.openqa.selenium.*;
+import org.openqa.selenium.io.FileHandler;
+
+import java.io.*;
+import java.nio.file.*;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * Generates element screenshots for all LocatorCandidates and creates an HTML report.
+ *
+ * Usage:
+ *   List<LocatorCandidate> candidates = LocatorScannerUtil.scanPage();
+ *   ElementScreenshotReportGenerator.generateReport(candidates, "LoginPageScan");
+ */
+public final class ElementScreenshotReportGenerator {
+
+    private ElementScreenshotReportGenerator() {}
+
+    /**
+     * Main entry to generate screenshots and html report.
+     *
+     * @param candidates list produced by LocatorScannerUtil.scanPage()
+     * @param pageName friendly name used in report file/folder
+     * @return path to generated HTML report
+     */
+    public static Path generateReport(List<LocatorCandidate> candidates, String pageName) {
+        String timestamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now());
+        Path reportDir = Paths.get("reports", sanitize(pageName) + "_" + timestamp);
+        Path imagesDir = reportDir.resolve("images");
+
+        try {
+            Files.createDirectories(imagesDir);
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to create report directories", e);
+        }
+
+        Map<LocatorCandidate, String> screenshots = new LinkedHashMap<>();
+
+        WebDriver driver = ITAFDriverFactory.getDriver();
+
+        int idx = 1;
+        for (LocatorCandidate lc : candidates) {
+            String fileName = "elem_" + idx + ".png";
+            Path out = imagesDir.resolve(fileName);
+            boolean captured = false;
+
+            try {
+                // Try to locate the element on the page using candidate info
+                WebElement el = findElementForCandidate(driver, lc);
+                if (el != null) {
+                    // Scroll into view first (avoid off-screen capture issues)
+                    try {
+                        ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center', inline:'center'});", el);
+                        Thread.sleep(150); // small pause to stabilize rendering
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    } catch (Exception ignored) {}
+
+                    // Try WebElement screenshot (Selenium supports element screenshots)
+                    try {
+                        byte[] image = el.getScreenshotAs(OutputType.BYTES);
+                        Files.write(out, image);
+                        captured = true;
+                    } catch (WebDriverException | IOException e) {
+                        // fallback below
+                        captured = false;
+                    }
+                }
+            } catch (Exception e) {
+                // swallow: can't find or capture element
+            }
+
+            // fallback - if we couldn't capture element itself, capture a small full-page screenshot
+            if (!captured) {
+                try {
+                    // capture full page or viewport screenshot and mark in report as fallback
+                    TakesScreenshot ts = (TakesScreenshot) driver;
+                    byte[] image = ts.getScreenshotAs(OutputType.BYTES);
+                    Files.write(out, image);
+                    // Optionally annotate or note that this is fallback
+                    screenshots.put(lc, "images/" + fileName + " (fallback-fullpage)");
+                } catch (Exception ex) {
+                    screenshots.put(lc, null); // no image available
+                }
+            } else {
+                screenshots.put(lc, "images/" + fileName);
+            }
+
+            idx++;
+        }
+
+        // Generate html
+        Path html = reportDir.resolve("locator-scan-report.html");
+        try {
+            writeHtmlReport(html, pageName, screenshots);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write HTML report", e);
+        }
+
+        System.out.println("Locator scan report created at: " + html.toAbsolutePath());
+        return html;
+    }
+
+    /**
+     * Attempt to find the best WebElement for the candidate by trying common locator strategies.
+     */
+    private static WebElement findElementForCandidate(WebDriver driver, LocatorCandidate lc) {
+        List<By> tries = new ArrayList<>();
+
+        if (lc.id != null && !lc.id.isBlank()) tries.add(By.id(lc.id));
+        if (lc.name != null && !lc.name.isBlank()) tries.add(By.name(lc.name));
+        if (lc.css != null && !lc.css.isBlank()) tries.add(By.cssSelector(lc.css));
+        // try aria-label via css attribute
+        if (lc.ariaLabel != null && !lc.ariaLabel.isBlank())
+            tries.add(By.cssSelector("[aria-label='" + escapeCssAttribute(lc.ariaLabel) + "']"));
+        if (lc.text != null && !lc.text.isBlank())
+            tries.add(By.xpath("//" + lc.elementTag + "[normalize-space(text())='" + escapeXpath(lc.text) + "']"));
+        if (lc.xpath != null && !lc.xpath.isBlank())
+            tries.add(By.xpath(lc.xpath));
+
+        for (By b : tries) {
+            try {
+                // Use a tiny wait to allow element to appear
+                if (WaitUtil.waitForOptionalElement(b, 1)) {
+                    WebElement el = driver.findElement(b);
+                    if (el != null && el.isDisplayed()) return el;
+                }
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    /**
+     * Write a simple table-based HTML report with images and locator suggestions.
+     */
+    private static void writeHtmlReport(Path html, String pageName, Map<LocatorCandidate, String> screenshots) throws IOException {
+        try (BufferedWriter bw = Files.newBufferedWriter(html, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            bw.write("<!doctype html>\n<html lang='en'>\n<head>\n<meta charset='utf-8'>\n");
+            bw.write("<title>Locator Scan Report - " + escapeHtml(pageName) + "</title>\n");
+            bw.write("<style>\n");
+            bw.write("body { font-family: Arial, Helvetica, sans-serif; margin: 16px; }\n");
+            bw.write("table { border-collapse: collapse; width: 100%; }\n");
+            bw.write("th, td { border: 1px solid #ddd; padding: 8px; }\n");
+            bw.write("th { background:#f4f4f4; }\n");
+            bw.write("img { max-width: 220px; max-height: 160px; border: 1px solid #ccc; }\n");
+            bw.write(".small { font-size: 12px; color: #555; }\n");
+            bw.write("</style>\n</head>\n<body>\n");
+            bw.write("<h1>Locator Scan Report</h1>\n");
+            bw.write("<h3>Page: " + escapeHtml(pageName) + "</h3>\n");
+            bw.write("<p>Generated: " + LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "</p>\n");
+
+            bw.write("<table>\n");
+            bw.write("<thead><tr>");
+            bw.write("<th>#</th><th>Preview</th><th>Tag</th><th>Best Locator</th><th>All Locators</th><th>Score</th>");
+            bw.write("</tr></thead>\n<tbody>\n");
+
+            int i = 1;
+            for (Map.Entry<LocatorCandidate, String> e : screenshots.entrySet()) {
+                LocatorCandidate lc = e.getKey();
+                String imagePath = e.getValue();
+
+                bw.write("<tr>\n");
+                bw.write("<td>" + i + "</td>\n");
+
+                if (imagePath != null) {
+                    bw.write("<td><img src=\"" + imagePath + "\" alt=\"elem-" + i + "\"/></td>\n");
+                } else {
+                    bw.write("<td class='small'>No image available</td>\n");
+                }
+
+                bw.write("<td>" + escapeHtml(lc.elementTag) + "</td>\n");
+
+                String best = BestLocatorResolver.resolveBestLocator(lc);
+                bw.write("<td><code>" + escapeHtml(best) + "</code></td>\n");
+
+                String all = StreamOfLocators(lc);
+                bw.write("<td class='small'><pre>" + escapeHtml(all) + "</pre></td>\n");
+
+                bw.write("<td>" + lc.uniquenessScore + "</td>\n");
+
+                bw.write("</tr>\n");
+                i++;
+            }
+
+            bw.write("</tbody>\n</table>\n");
+            bw.write("</body>\n</html>\n");
+        }
+    }
+
+    private static String StreamOfLocators(LocatorCandidate lc) {
+        List<String> parts = new ArrayList<>();
+        if (lc.id != null) parts.add("By.id(\"" + lc.id + "\")");
+        if (lc.name != null) parts.add("By.name(\"" + lc.name + "\")");
+        if (lc.ariaLabel != null) parts.add("By.cssSelector(\"[aria-label='" + lc.ariaLabel + "']\")");
+        if (lc.css != null) parts.add("By.cssSelector(\"" + lc.css + "\")");
+        if (lc.text != null) parts.add("By.xpath(\"//" + lc.elementTag + "[text()='" + lc.text + "']\")");
+        if (lc.xpath != null) parts.add("By.xpath(\"" + lc.xpath + "\")");
+        return parts.stream().collect(Collectors.joining("\n"));
+    }
+
+    // sanitize file/dir names
+    private static String sanitize(String s) {
+        return s == null ? "page" : s.replaceAll("[^a-zA-Z0-9_\\-]", "_");
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
+    private static String escapeXpath(String s) {
+        if (s == null) return "";
+        // naive escape: replace ' with double-quote concat (works for majority)
+        if (!s.contains("'")) return s;
+        // else return concat expression (simplify for report usage)
+        return s.replace("'", "\\'");
+    }
+
+    private static String escapeCssAttribute(String s) {
+        if (s == null) return "";
+        return s.replace("\"", "\\\"").replace("'", "\\'");
+    }
+}
+------------------------
+// 1) navigate to page before scanning
+BrowserUtil.openUrl("https://your-app/login");
+// 2) wait stable
+WaitUtil.waitForPageLoadComplete();
+PageLoadUtil.waitForDomStable();
+
+// 3) scan
+List<LocatorCandidate> candidates = LocatorScannerUtil.scanPage();
+
+// 4) generate report (captures element screenshots and html)
+Path report = ElementScreenshotReportGenerator.generateReport(candidates, "LoginPage");
+
+// 5) Open report in browser locally for review
+System.out.println("Open file: " + report.toAbsolutePath());
