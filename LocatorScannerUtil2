@@ -1,9 +1,21 @@
+package com.itaf.ui.locator;
+
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
+import java.util.stream.Collectors;
 
+/**
+ * Central configuration loader for the configurable Locator Scanner.
+ *
+ * Loads:
+ *   - interactive selectors
+ *   - extra selectors (teams can extend)
+ *   - locator priority (dynamic ranking)
+ *   - visibility rules
+ *
+ * Everything is configurable via itaf-ui-locator-config.properties.
+ */
 public final class LocatorScannerConfig {
 
     private static final Properties props = new Properties();
@@ -13,41 +25,91 @@ public final class LocatorScannerConfig {
                 .getClassLoader()
                 .getResourceAsStream("itaf-ui-locator-config.properties")) {
 
-            if (is != null) {
-                props.load(is);
-            } else {
+            if (is == null) {
                 throw new RuntimeException("Config file not found: itaf-ui-locator-config.properties");
             }
 
+            props.load(is);
+
         } catch (IOException e) {
-            throw new RuntimeException("Unable to load locator scanner config", e);
+            throw new RuntimeException("Failed to load locator config", e);
         }
     }
 
+
+    // -----------------------------------------------------------
+    // 1. BASE SELECTORS (interactive elements)
+    // -----------------------------------------------------------
     public static List<String> getBaseSelectors() {
         String val = props.getProperty("itaf.locator.scan.selectors", "");
-        return Arrays.stream(val.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isBlank())
-                .toList();
+        return splitAndClean(val);
     }
 
+    // -----------------------------------------------------------
+    // 2. EXTRA SELECTORS (custom per team)
+    // -----------------------------------------------------------
     public static List<String> getExtraSelectors() {
         String val = props.getProperty("itaf.locator.scan.extra-selectors", "");
-        return Arrays.stream(val.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isBlank())
-                .toList();
+        return splitAndClean(val);
     }
 
+    // -----------------------------------------------------------
+    // 3. LOCATOR PRIORITY LIST
+    // -----------------------------------------------------------
+    public static List<String> getLocatorPriorityList() {
+        String val = props.getProperty("itaf.locator.priority", "").trim();
+
+        if (val.isEmpty()) {
+            // Default priority if config is missing
+            return List.of(
+                "data-testid",
+                "data-qa",
+                "id",
+                "aria-label",
+                "name",
+                "css",
+                "text",
+                "xpath"
+            );
+        }
+
+        return splitAndClean(val)
+                .stream()
+                .map(String::toLowerCase)
+                .collect(Collectors.toList());
+    }
+
+    // -----------------------------------------------------------
+    // 4. VISIBILITY RULES
+    // -----------------------------------------------------------
     public static int getMinVisibleWidth() {
-        return Integer.parseInt(props.getProperty("itaf.locator.visible.min-width", "2"));
+        return getInt("itaf.locator.visible.min-width", 2);
     }
 
     public static int getMinVisibleHeight() {
-        return Integer.parseInt(props.getProperty("itaf.locator.visible.min-height", "2"));
+        return getInt("itaf.locator.visible.min-height", 2);
+    }
+
+    // -----------------------------------------------------------
+    // Utility Methods
+    // -----------------------------------------------------------
+
+    private static List<String> splitAndClean(String val) {
+        return Arrays.stream(val.split(","))
+                     .map(String::trim)
+                     .filter(s -> !s.isBlank())
+                     .collect(Collectors.toList());
+    }
+
+    private static int getInt(String key, int defaultVal) {
+        try {
+            return Integer.parseInt(props.getProperty(key, String.valueOf(defaultVal)));
+        } catch (Exception e) {
+            return defaultVal;
+        }
     }
 }
+
 -----------------------------
 import java.util.HashMap;
 import java.util.Map;
@@ -339,4 +401,50 @@ itaf.locator.priority = formcontrolname, ng-reflect-name, id, css, text
 🔹 For custom internal app:
 itaf.locator.scan.extra-selectors = [automation-id], [data-app-id]
 itaf.locator.priority = automation-id, data-app-id, id, css
+
+
+
+-----------------------------
+
+# ----------------------------------------
+# Locator Scanner Selectors
+# ----------------------------------------
+itaf.locator.scan.selectors = 
+  button,
+  input,
+  textarea,
+  select,
+  a[href],
+  a[role='link'],
+  [role='button'],
+  [contenteditable='true'],
+  [onclick]
+
+# Custom selectors per application team
+itaf.locator.scan.extra-selectors = 
+  [data-testid],
+  [data-qa],
+  [automation-id],
+  div[role='button']
+
+# ----------------------------------------
+# Locator Priority (BEST → WORST)
+# ----------------------------------------
+itaf.locator.priority = 
+  data-testid,
+  automation-id,
+  data-qa,
+  id,
+  aria-label,
+  name,
+  css,
+  text,
+  xpath
+
+# ----------------------------------------
+# Visibility Rules
+# ----------------------------------------
+itaf.locator.visible.min-width = 2
+itaf.locator.visible.min-height = 2
+
 
