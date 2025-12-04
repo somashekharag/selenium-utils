@@ -180,3 +180,16 @@ public class LocatorScannerUtil {
 
 -------------------------------------------------
 List<LocatorCandidate> elements = LocatorScannerUtil.scanPage();
+
+for (LocatorCandidate lc : elements) {
+    System.out.println("--------------- ELEMENT ---------------");
+    System.out.println("Tag        : " + lc.elementTag);
+    System.out.println("Id         : " + lc.id);
+    System.out.println("Name       : " + lc.name);
+    System.out.println("Class      : " + lc.className);
+    System.out.println("Aria-Label : " + lc.ariaLabel);
+    System.out.println("Text       : " + lc.text);
+    System.out.println("CSS        : " + lc.css);
+    System.out.println("XPath      : " + lc.xpath);
+    System.out.println("Score      : " + lc.uniquenessScore);
+}
