@@ -1,0 +1,82 @@
+package com.itaf.ui.locator;
+
+import java.io.FileWriter;
+import java.util.List;
+
+/**
+ * Automatically generates a PageFactory page object Java class.
+ */
+public class PageObjectGeneratorUtil {
+
+    public static void generatePageObject(String className, String packageName, List<LocatorCandidate> candidates) {
+        try {
+            String folder = "generated-pages/";
+            String filePath = folder + className + ".java";
+            new java.io.File(folder).mkdirs();
+
+            FileWriter fw = new FileWriter(filePath);
+
+            fw.write("package " + packageName + ";\n\n");
+            fw.write("import org.openqa.selenium.*;\n");
+            fw.write("import org.openqa.selenium.support.FindBy;\n");
+            fw.write("import org.openqa.selenium.support.PageFactory;\n");
+            fw.write("import com.itaf.ui.base.BaseClass;\n\n");
+
+            fw.write("public class " + className + " extends BaseClass {\n\n");
+            fw.write("    public " + className + "() {\n");
+            fw.write("        PageFactory.initElements(driver(), this);\n");
+            fw.write("    }\n\n");
+
+            for (LocatorCandidate lc : candidates) {
+                String bestLocator = BestLocatorResolver.resolveBestLocator(lc);
+                String varName = generateVarName(lc);
+
+                fw.write("    @FindBy(" + convert(bestLocator) + ")\n");
+                fw.write("    private WebElement " + varName + ";\n\n");
+            }
+
+            fw.write("}\n");
+            fw.close();
+
+            System.out.println("Page Object generated: " + filePath);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Page object generator failed", e);
+        }
+    }
+
+    private static String convert(String bestLocator) {
+        if (bestLocator.startsWith("By.id"))
+            return "id = \"" + bestLocator.replace("By.id(\"", "").replace("\")", "") + "\"";
+
+        if (bestLocator.startsWith("By.name"))
+            return "name = \"" + bestLocator.replace("By.name(\"", "").replace("\")", "") + "\"";
+
+        if (bestLocator.startsWith("By.cssSelector"))
+            return "css = \"" + bestLocator.replace("By.cssSelector(\"", "").replace("\")", "") + "\"";
+
+        if (bestLocator.startsWith("By.xpath"))
+            return "xpath = \"" + bestLocator.replace("By.xpath(\"", "").replace("\")", "") + "\"";
+
+        return "";
+    }
+
+    private static String generateVarName(LocatorCandidate lc) {
+        if (lc.id != null) return lc.id;
+        if (lc.name != null) return lc.name;
+        if (lc.text != null) return lc.text.replaceAll("\\W+", "_").toLowerCase();
+        return lc.elementTag + "_" + lc.uniquenessScore;
+    }
+}
+
+
+-----------------
+
+List<LocatorCandidate> elements = LocatorScannerUtil.scanPage();
+
+PageObjectGeneratorUtil.generatePageObject(
+    "LoginPageGenerated",
+    "com.itaf.ui.generated",
+    elements
+);
+
