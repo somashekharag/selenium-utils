@@ -710,3 +710,57 @@ public final class ElementScreenshotReportGenerator {
     }
 }
 
+-----------------------------------------
+
+private static int calculateUniqueness(LocatorCandidate lc) {
+
+    int score = 0;
+
+    // 1. Prefer id strongly
+    if (notEmpty(lc.id)) score += 100;
+
+    // 2. Use configured priority list (dynamic attributes)
+    List<String> priority = LocatorScannerConfig.getLocatorPriorityList();
+
+    int weight = 90; // starting weight for first attribute in priority list
+
+    for (String key : priority) {
+
+        // Case: dedicated fields
+        switch (key) {
+            case "id":
+                if (notEmpty(lc.id)) score += weight;
+                break;
+
+            case "name":
+                if (notEmpty(lc.name)) score += weight;
+                break;
+
+            case "css":
+                if (notEmpty(lc.css)) score += weight;
+                break;
+
+            case "text":
+                if (notEmpty(lc.text)) score += weight;
+                break;
+
+            case "xpath":
+                if (notEmpty(lc.xpath)) score += weight;
+                break;
+
+            default:
+                // 3. Generic dynamic attribute support
+                String attrVal = lc.attrs.get(key);
+                if (notEmpty(attrVal)) {
+                    score += weight;
+                }
+        }
+
+        // Decrease weight for next priority item
+        weight -= 10;
+        if (weight < 10) weight = 10; // minimum weight
+    }
+
+    // base offset
+    return score + 5;
+}
