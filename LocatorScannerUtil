@@ -1,0 +1,181 @@
+package com.itaf.ui.locator;
+
+public class LocatorCandidate {
+    public String elementTag;
+    public String id;
+    public String name;
+    public String css;
+    public String xpath;
+    public String text;
+    public String className;
+    public String ariaLabel;
+    public int uniquenessScore;
+}
+
+
+------------------------------------------
+
+package com.itaf.ui.locator;
+
+public class BestLocatorResolver {
+
+    /**
+     * Returns best locator type for an element based on uniqueness score.
+     * Ranking:
+     * 1. id
+     * 2. data-testid / aria-label
+     * 3. name
+     * 4. unique CSS
+     * 5. text (visible)
+     * 6. XPath
+     */
+    public static String resolveBestLocator(LocatorCandidate lc) {
+
+        if (lc.id != null && !lc.id.isBlank())
+            return "By.id(\"" + lc.id + "\")";
+
+        if (lc.ariaLabel != null && !lc.ariaLabel.isBlank())
+            return "By.cssSelector(\"[aria-label='" + lc.ariaLabel + "']\")";
+
+        if (lc.name != null && !lc.name.isBlank())
+            return "By.name(\"" + lc.name + "\")";
+
+        if (lc.css != null && !lc.css.isBlank())
+            return "By.cssSelector(\"" + lc.css + "\")";
+
+        if (lc.text != null && !lc.text.isBlank())
+            return "By.xpath(\"//" + lc.elementTag + "[text()='" + lc.text + "']\")";
+
+        return "By.xpath(\"" + lc.xpath + "\")";
+    }
+}
+
+------------------------------------------------------
+
+package com.itaf.ui.locator;
+
+import com.itaf.core.driver.ITAFDriverFactory;
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.WebDriver;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * LocatorScannerUtil:
+ *  - Scans entire DOM
+ *  - Extracts id, class, text, name, aria-label
+ *  - Generates CSS + XPath
+ *  - Calculates uniqueness score
+ */
+public class LocatorScannerUtil {
+
+    /**
+     * Main method to scan the page and extract locator candidates.
+     */
+    public static List<LocatorCandidate> scanPage() {
+        WebDriver driver = ITAFDriverFactory.getDriver();
+        JavascriptExecutor js = (JavascriptExecutor) driver;
+
+        String script = """
+                var results = [];
+                var all = document.querySelectorAll("*");
+                all.forEach(function(el) {
+                    var rect = el.getBoundingClientRect();
+                    if (rect.width < 1 || rect.height < 1) return;
+
+                    results.push({
+                        tag: el.tagName.toLowerCase(),
+                        id: el.id || null,
+                        name: el.getAttribute('name') || null,
+                        className: el.className || null,
+                        ariaLabel: el.getAttribute('aria-label') || null,
+                        text: el.innerText && el.innerText.trim().length <= 30 ? el.innerText.trim() : null,
+                        cssPath: getCssPath(el),
+                        xpath: getXPath(el)
+                    });
+                });
+
+                function getCssPath(el) {
+                    if (!el) return null;
+                    var path = "";
+                    while (el && el.nodeType === Node.ELEMENT_NODE) {
+                        var selector = el.nodeName.toLowerCase();
+                        if (el.id) {
+                            selector += "#" + el.id;
+                            path = selector + (path ? " > " + path : "");
+                            break;
+                        } else {
+                            var sib = el, nth = 1;
+                            while (sib = sib.previousElementSibling)
+                                if (sib.nodeName.toLowerCase() == selector)
+                                    nth++;
+                            selector += ":nth-of-type(" + nth + ")";
+                        }
+                        path = selector + (path ? " > " + path : "");
+                        el = el.parentNode;
+                    }
+                    return path;
+                }
+
+                function getXPath(el) {
+                    if (el.id)
+                        return "//*[@id='" + el.id + "']";
+
+                    var ix = 0;
+                    var siblings = el.parentNode ? el.parentNode.children : [];
+                    for (var i=0; i<siblings.length; i++) {
+                        var sib = siblings[i];
+                        if (sib.tagName === el.tagName) ix++;
+                        if (sib === el) {
+                            return getXPath(el.parentNode) + "/" + el.tagName.toLowerCase() + "[" + ix + "]";
+                        }
+                    }
+                    return "";
+                }
+
+                return results;
+                """;
+
+        List<Map<String, Object>> raw = (List<Map<String, Object>>) js.executeScript(script);
+        List<LocatorCandidate> candidates = new ArrayList<>();
+
+        for (Map<String, Object> map : raw) {
+            LocatorCandidate lc = new LocatorCandidate();
+
+            lc.elementTag = (String) map.get("tag");
+            lc.id = (String) map.get("id");
+            lc.name = (String) map.get("name");
+            lc.className = (String) map.get("className");
+            lc.ariaLabel = (String) map.get("ariaLabel");
+            lc.text = (String) map.get("text");
+            lc.css = (String) map.get("cssPath");
+            lc.xpath = (String) map.get("xpath");
+
+            lc.uniquenessScore = calculateUniqueness(lc);
+
+            candidates.add(lc);
+        }
+
+        return candidates;
+    }
+
+    /**
+     * Uniqueness scoring algorithm.
+     */
+    private static int calculateUniqueness(LocatorCandidate lc) {
+        int score = 0;
+
+        if (lc.id != null) score += 100;
+        if (lc.ariaLabel != null) score += 80;
+        if (lc.name != null) score += 60;
+        if (lc.text != null) score += 40;
+        if (lc.css != null) score += 20;
+        score += 10;
+
+        return score;
+    }
+}
+
+-------------------------------------------------
