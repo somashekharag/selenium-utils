@@ -62,17 +62,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * LocatorScannerUtil:
- *  - Scans entire DOM
- *  - Extracts id, class, text, name, aria-label
- *  - Generates CSS + XPath
- *  - Calculates uniqueness score
- */
 public class LocatorScannerUtil {
 
     /**
-     * Main method to scan the page and extract locator candidates.
+     * Scans only interactive elements:
+     *  - button, input, textarea, select
+     *  - a[href]
+     *  - elements with onclick / role='button'
+     *  - contenteditable elements
      */
     public static List<LocatorCandidate> scanPage() {
         WebDriver driver = ITAFDriverFactory.getDriver();
@@ -80,22 +77,26 @@ public class LocatorScannerUtil {
 
         String script = """
                 var results = [];
-                var all = document.querySelectorAll("*");
-                all.forEach(function(el) {
-                    var rect = el.getBoundingClientRect();
-                    if (rect.width < 1 || rect.height < 1) return;
+                var elements = document.querySelectorAll(
+                    "button, " +
+                    "input, " +
+                    "textarea, " +
+                    "select, " +
+                    "a[href], " +
+                    "[role='button'], " +
+                    "[contenteditable='true'], " +
+                    "[onclick]"
+                );
 
-                    results.push({
-                        tag: el.tagName.toLowerCase(),
-                        id: el.id || null,
-                        name: el.getAttribute('name') || null,
-                        className: el.className || null,
-                        ariaLabel: el.getAttribute('aria-label') || null,
-                        text: el.innerText && el.innerText.trim().length <= 30 ? el.innerText.trim() : null,
-                        cssPath: getCssPath(el),
-                        xpath: getXPath(el)
-                    });
-                });
+                function isVisible(el) {
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    return (
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        rect.width > 1 && rect.height > 1
+                    );
+                }
 
                 function getCssPath(el) {
                     if (!el) return null;
@@ -123,17 +124,34 @@ public class LocatorScannerUtil {
                     if (el.id)
                         return "//*[@id='" + el.id + "']";
 
-                    var ix = 0;
+                    var index = 1;
                     var siblings = el.parentNode ? el.parentNode.children : [];
-                    for (var i=0; i<siblings.length; i++) {
+                    for (var i = 0; i < siblings.length; i++) {
                         var sib = siblings[i];
-                        if (sib.tagName === el.tagName) ix++;
-                        if (sib === el) {
-                            return getXPath(el.parentNode) + "/" + el.tagName.toLowerCase() + "[" + ix + "]";
+                        if (sib.tagName === el.tagName) {
+                            if (sib === el) {
+                                return getXPath(el.parentNode) + "/" + el.tagName.toLowerCase() + "[" + index + "]";
+                            }
+                            index++;
                         }
                     }
                     return "";
                 }
+
+                elements.forEach(function(el) {
+                    if (!isVisible(el)) return;
+
+                    results.push({
+                        tag: el.tagName.toLowerCase(),
+                        id: el.id || null,
+                        name: el.getAttribute('name') || null,
+                        className: el.className || null,
+                        ariaLabel: el.getAttribute('aria-label') || null,
+                        text: el.innerText && el.innerText.trim().length <= 40 ? el.innerText.trim() : null,
+                        cssPath: getCssPath(el),
+                        xpath: getXPath(el)
+                    });
+                });
 
                 return results;
                 """;
@@ -144,14 +162,14 @@ public class LocatorScannerUtil {
         for (Map<String, Object> map : raw) {
             LocatorCandidate lc = new LocatorCandidate();
 
-            lc.elementTag = (String) map.get("tag");
-            lc.id = (String) map.get("id");
-            lc.name = (String) map.get("name");
-            lc.className = (String) map.get("className");
-            lc.ariaLabel = (String) map.get("ariaLabel");
-            lc.text = (String) map.get("text");
-            lc.css = (String) map.get("cssPath");
-            lc.xpath = (String) map.get("xpath");
+            lc.elementTag = safe(map.get("tag"));
+            lc.id = safe(map.get("id"));
+            lc.name = safe(map.get("name"));
+            lc.className = safe(map.get("className"));
+            lc.ariaLabel = safe(map.get("ariaLabel"));
+            lc.text = safe(map.get("text"));
+            lc.css = safe(map.get("cssPath"));
+            lc.xpath = safe(map.get("xpath"));
 
             lc.uniquenessScore = calculateUniqueness(lc);
 
@@ -159,6 +177,12 @@ public class LocatorScannerUtil {
         }
 
         return candidates;
+    }
+
+    private static String safe(Object obj) {
+        if (obj == null) return null;
+        String s = String.valueOf(obj).trim();
+        return (s.equals("null") || s.isEmpty()) ? null : s;
     }
 
     /**
